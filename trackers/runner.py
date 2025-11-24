@@ -88,7 +88,7 @@ class TrackingRunner:
         if self.data_analytics:
             self.data_analytics.restart()
 
-    def draw_and_collect_data(self) -> None:
+    def draw_and_collect_data(self, status_callback: Optional[callable] = None) -> None:
         """
         Draw tracker results and 2D court projections accross all video frames.
         Collect data for further analysis.
@@ -112,6 +112,9 @@ class TrackingRunner:
         )
 
         for frame_index, frame in tqdm(enumerate(frame_generator)):
+            if status_callback and frame_index % 10 == 0: # Update every 10 frames to avoid overhead
+                 progress = 0.5 + (frame_index / self.total_frames) * 0.5
+                 status_callback(f"Generating output video: Frame {frame_index}/{self.total_frames}", progress)
     
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
@@ -172,17 +175,17 @@ class TrackingRunner:
         print("runner: Done.") 
 
 
-    def run(self) -> None:
+    def run(self, status_callback: Optional[callable] = None) -> None:
         """
         Run trackers object prediction for every frame in the frame generator
 
         Parameters:
-            drop_last: True to drop the last sample if its incomplete
+            status_callback: callback function to report progress (message, progress_float)
         """
 
         print(f"runner: Running {self.total_frames} frames")
 
-        for tracker in self.trackers.values():
+        for i, tracker in enumerate(self.trackers.values()):
 
             if len(tracker) != 0:
                 print(f"{tracker.__str__()}: {len(tracker)} predictions stored")
@@ -232,8 +235,12 @@ class TrackingRunner:
             print(f"{str(tracker)}: {t1 - t0} inference time.")
 
             tracker.save_predictions()
+            
+            if status_callback:
+                progress = (i + 1) / len(self.trackers) * 0.5
+                status_callback(f"Running {str(tracker)}...", progress)
         
-        self.draw_and_collect_data()
+        self.draw_and_collect_data(status_callback)
 
         
 

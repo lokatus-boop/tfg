@@ -29,6 +29,18 @@ class PlayerPosition:
         return f"player{self.id}"
 
 @dataclass
+class BallPosition:
+    """
+    Ball position (meters) in a given frame
+    """
+    position: tuple[float, float]
+
+    def __post_init__(self):
+        assert isinstance(self.position[0], float)
+        assert isinstance(self.position[1], float)
+
+
+@dataclass
 class DataPoint:
 
     """
@@ -37,10 +49,12 @@ class DataPoint:
     Attributes: 
         frame: frame of interest
         players_position: players position (meters) in the given frame
+        ball_position: ball position (meters) in the given frame
     """
 
     frame: int = None
     players_position: list[PlayerPosition] = None
+    ball_position: BallPosition = None
 
     def validate(self) -> None:
 
@@ -49,29 +63,34 @@ class DataPoint:
         
         if self.players_position is None:
             print("data_analytics: WARNING(Missing players position)")
-            return None
+            # return None # Allow missing players if we are just tracking ball? No, app logic depends on players.
         
-        players_ids = []
-        for i, player_pos in enumerate(deepcopy(self.players_position)):
-            player_id = player_pos.id
+        if self.players_position:
+            valid_players_position = []
+            players_ids = []
+            for player_pos in self.players_position:
+                player_id = player_pos.id
+                if player_id in (1, 2, 3, 4):
+                    players_ids.append(player_id)
+                    valid_players_position.append(player_pos)
+            
+            self.players_position = valid_players_position
 
-            if player_id in (1, 2, 3, 4):
-                players_ids.append(player_id)
-            else:
-                del self.players_position[i]
-
-        if len(players_ids) != len(set(players_ids)):
-            raise InvalidDataPoint("N-plicate player id")
-        
-        if len(self.players_position) != 4:
-            number_players_missing = 4 - len(self.players_position)
-            print(f"{number_players_missing} player/s missing")
+            if len(players_ids) != len(set(players_ids)):
+                raise InvalidDataPoint("N-plicate player id")
+            
+            if len(self.players_position) != 4:
+                number_players_missing = 4 - len(self.players_position)
+                print(f"{number_players_missing} player/s missing")
         
     def add_player_position(self, player_position: PlayerPosition):
         if self.players_position is None:
             self.players_position = [player_position]
         else:
             self.players_position.append(player_position)
+
+    def add_ball_position(self, ball_position: BallPosition):
+        self.ball_position = ball_position
 
     def sort_players_position(self) -> Optional[list[PlayerPosition]]:
         if self.players_position:
@@ -125,11 +144,19 @@ class DataAnalytics:
                         )
                     )   
                 )
+            
+            ball_position = None
+            if data.get("ball_x") and data.get("ball_y"):
+                 if data["ball_x"][i] is not None and data["ball_y"][i] is not None:
+                    ball_position = BallPosition(
+                        position=(data["ball_x"][i], data["ball_y"][i])
+                    )
 
             datapoints.append(
                 DataPoint(
                     frame=frame, 
                     players_position=players_position if players_position else None,
+                    ball_position=ball_position
                 )
             )
         
@@ -149,6 +176,8 @@ class DataAnalytics:
             "player3_y": [],
             "player4_x": [],
             "player4_y": [],
+            "ball_x": [],
+            "ball_y": [],
         }
 
         for datapoint in self.datapoints:
@@ -164,6 +193,10 @@ class DataAnalytics:
                     data[f"{player_position.key}_y"].append(
                         player_position.position[1] 
                     )
+            
+            if datapoint.ball_position:
+                data["ball_x"].append(datapoint.ball_position.position[0])
+                data["ball_y"].append(datapoint.ball_position.position[1])
 
             # Append missing values
             for k, v in data.items():
@@ -204,6 +237,16 @@ class DataAnalytics:
             )
         )
 
+    def add_ball_position(
+        self,
+        position: tuple[float, float],
+    ):
+        self.current_datapoint.add_ball_position(
+            BallPosition(
+                position=position,
+            )
+        )
+
     def into_dataframe(self, fps: int) -> pd.DataFrame:
         """
         Retrieves a dataframe with additional features
@@ -236,68 +279,80 @@ class DataAnalytics:
         df = pd.DataFrame(self.into_dict())
         df["time"] = df["frame"] * (1/fps)
 
+        # Convert player columns to numeric, coercing errors (None) to NaN
+        for player_id in player_ids:
+            for pos in ("x", "y"):
+                col_name = f"player{player_id}_{pos}"
+                df[col_name] = pd.to_numeric(df[col_name], errors='coerce')
+        
+        # Convert ball columns to numeric
+        for pos in ("x", "y"):
+            col_name = f"ball_{pos}"
+            df[col_name] = pd.to_numeric(df[col_name], errors='coerce')
+
         for frame_interval in frame_intervals:
             # Time in seconds between each frame for a given frame interval
             df[f"delta_time{frame_interval}"] = df["time"].diff(frame_interval)
+            
+            # --- Players Kinematics ---
             for player_id in player_ids:
                 for pos in ("x", "y"):
-                    # Displacement in x and y for each of the players 
-                    # for a given time interval
-                    df[
-                        f"player{player_id}_delta{pos}{frame_interval}"
-                    ] = df[f"player{player_id}_{pos}"].diff(frame_interval)
+                    # Displacement
+                    df[f"player{player_id}_delta{pos}{frame_interval}"] = df[f"player{player_id}_{pos}"].diff(frame_interval)
 
-                    # Velocity in x and y for each of the players 
-                    # for a given time interval
-                    eval_string_velocity = f"""
-                    player{player_id}_delta{pos}{frame_interval} / delta_time{frame_interval}
-                    """
-                    df[f"player{player_id}_V{pos}{frame_interval}"] = df.eval(
-                        eval_string_velocity,
-                    )
+                    # Velocity
+                    eval_string_velocity = f"player{player_id}_delta{pos}{frame_interval} / delta_time{frame_interval}"
+                    df[f"player{player_id}_V{pos}{frame_interval}"] = df.eval(eval_string_velocity)
 
-                    # Velocity difference in x and y for each of the players 
-                    # for a given time interval
-                    df[
-                        f"player{player_id}_deltaV{pos}{frame_interval}"
-                    ] = df[f"player{player_id}_V{pos}{frame_interval}"].diff(frame_interval)
+                    # Velocity difference
+                    df[f"player{player_id}_deltaV{pos}{frame_interval}"] = df[f"player{player_id}_V{pos}{frame_interval}"].diff(frame_interval)
 
-                    # Acceleration in x and y for each of the players
-                    # for a given time interval
-                    eval_string_acceleration = f"""
-                    player{player_id}_deltaV{pos}{frame_interval} / delta_time{frame_interval}
-                    """
-                    df[f"player{player_id}_A{pos}{frame_interval}"] = df.eval(
-                        eval_string_acceleration,
-                    )
+                    # Acceleration
+                    eval_string_acceleration = f"player{player_id}_deltaV{pos}{frame_interval} / delta_time{frame_interval}"
+                    df[f"player{player_id}_A{pos}{frame_interval}"] = df.eval(eval_string_acceleration)
                 
-                # Calculate player distance in between frames
+                # Distance
                 df[f"player{player_id}_distance"] = df.apply(
                     functools.partial(calculate_distance, player_id=player_id),
                     axis=1,
                 )
 
-                # Calculate norm velocity for each of the players
-                # for a given time interval
+                # Norm Velocity
                 df[f"player{player_id}_Vnorm{frame_interval}"] = df.apply(
-                    functools.partial(
-                        calculate_norm_velocity, 
-                        player_id=player_id,
-                        frame_interval=frame_interval,
-                    ),
+                    functools.partial(calculate_norm_velocity, player_id=player_id, frame_interval=frame_interval),
                     axis=1,
                 )
 
-                # Calculate norm acceleration for each of the players
-                # for a given time interval
+                # Norm Acceleration
                 df[f"player{player_id}_Anorm{frame_interval}"] = df.apply(
-                    functools.partial(
-                        calculate_norm_acceleration, 
-                        player_id=player_id,
-                        frame_interval=frame_interval,
-                    ),
+                    functools.partial(calculate_norm_acceleration, player_id=player_id, frame_interval=frame_interval),
                     axis=1,
                 )
+
+            # --- Ball Kinematics ---
+            for pos in ("x", "y"):
+                # Displacement
+                df[f"ball_delta{pos}{frame_interval}"] = df[f"ball_{pos}"].diff(frame_interval)
+
+                # Velocity
+                eval_string_velocity = f"ball_delta{pos}{frame_interval} / delta_time{frame_interval}"
+                df[f"ball_V{pos}{frame_interval}"] = df.eval(eval_string_velocity)
+
+                # Velocity difference
+                df[f"ball_deltaV{pos}{frame_interval}"] = df[f"ball_V{pos}{frame_interval}"].diff(frame_interval)
+
+                # Acceleration
+                eval_string_acceleration = f"ball_deltaV{pos}{frame_interval} / delta_time{frame_interval}"
+                df[f"ball_A{pos}{frame_interval}"] = df.eval(eval_string_acceleration)
+            
+            # Ball Norm Velocity
+            df[f"ball_Vnorm{frame_interval}"] = np.sqrt(
+                df[f"ball_Vx{frame_interval}"]**2 + df[f"ball_Vy{frame_interval}"]**2
+            )
+            # Ball Norm Acceleration
+            df[f"ball_Anorm{frame_interval}"] = np.sqrt(
+                df[f"ball_Ax{frame_interval}"]**2 + df[f"ball_Ay{frame_interval}"]**2
+            )
         
         return df
 

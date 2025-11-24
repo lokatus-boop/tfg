@@ -455,7 +455,8 @@ class ProjectedCourt:
                 ]
             ) 
         else:
-            raise ValueError("Unhandled number of keypoints detected")
+            print(f"Warning: Unhandled number of keypoints detected: {len(keypoints_detection)}. Expected 12, 18, or 22.")
+            return None
 
         if src_points.shape != dst_points.shape:
             raise InconsistentPredictedKeypoints("Don't have enough source points")
@@ -592,7 +593,7 @@ class ProjectedCourt:
         frame: np.ndarray,
         ball_detection: Ball,
         homography_matrix: np.ndarray,
-        
+        data_analytics: DataAnalytics = None,
     ) -> np.ndarray:
         """
         Project and draw ball
@@ -602,6 +603,15 @@ class ProjectedCourt:
             ball_detection=ball_detection,
             homography_matrix=homography_matrix,
         )
+
+        if data_analytics is not None:
+            shifted_projected_ball_pos = self.court_keypoints.shift_point_origin(
+                point=tuple(float(v) for v in projected_ball.projection),
+                dimension="meters",
+            )
+            data_analytics.add_ball_position(
+                position=shifted_projected_ball_pos,
+            )
 
         return projected_ball.draw_projection(frame)
 
@@ -633,18 +643,27 @@ class ProjectedCourt:
         if self.H is None:
             if keypoints_detection:
                 print("projected_court: First homography matrix calculation ...")
-                self.H = self.homography_matrix(keypoints_detection)
-                print("projected_court: Done.")
+                new_H = self.homography_matrix(keypoints_detection)
+                if new_H is not None:
+                    self.H = new_H
+                    print("projected_court: Done.")
+                else:
+                     print("projected_court: Failed to calculate first homography matrix.")
         else:
             if not(is_fixed_keypoints):
                 if keypoints_detection:
                     print("projected_court: Homography matrix calculation ...")
-                    self.H = self.homography_matrix(keypoints_detection)
-                    print("projected_court: Done.")
+                    new_H = self.homography_matrix(keypoints_detection)
+                    if new_H is not None:
+                        self.H = new_H
+                        print("projected_court: Done.")
+                    else:
+                        print("projected_court: Could not calculate homography (invalid keypoints). Using previous H if available.")
                 else:
                     # Can't calculate homography for this frame
                     print("projected_court: Missing keypoints for homography calculation")
-                    self.H = None
+                    # Keep previous H if it exists, don't set to None explicitly unless you want to lose tracking
+                    # self.H = None
 
         if self.H is not None and players_detection:
             output_frame = self.draw_projected_players_and_collect_data(
@@ -661,6 +680,7 @@ class ProjectedCourt:
                 output_frame,
                 ball_detection=ball_detection,
                 homography_matrix=self.H,
+                data_analytics=data_analytics,
             )
         else:
             print("projected_court: Missing data for ball projection")

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 import json
 from tqdm import tqdm
 from pathlib import Path
+import os
 import numpy as np
 from PIL import Image
 import torch
@@ -226,19 +227,21 @@ class Tracker(ABC):
 
         if self.load_path:
 
-            print(f"{self.__str__()}: Loading predictions ...")
+            if os.path.exists(self.load_path):
+                print(f"{self.__str__()}: Loading predictions ...")
 
-            with open(self.load_path, "r") as f:
-                parsable_detections = json.load(f)
-            
-            predictions = [
-                self.object().from_json(obj_json)
-                for obj_json in parsable_detections
-            ]
+                with open(self.load_path, "r") as f:
+                    parsable_detections = json.load(f)
+                
+                predictions = [
+                    self.object().from_json(obj_json)
+                    for obj_json in parsable_detections
+                ]
 
-            self.results.load(predictions)
-        
-        print(f"{self.__str__()}: {self.__len__()} predictions loaded.")
+                self.results.load(predictions)
+                print(f"{self.__str__()}: {self.__len__()} predictions loaded.")
+            else:
+                print(f"{self.__str__()}: Predictions file not found at {self.load_path}. Skipping load.")
 
     def to(self, device: Literal["cuda", "cpu"]) -> None:
         """

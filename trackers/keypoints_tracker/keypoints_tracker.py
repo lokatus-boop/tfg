@@ -162,7 +162,8 @@ class KeypointsTracker(Tracker):
                 self.NUMBER_KEYPOINTS*2,
             )
 
-            state_dict = torch.load(model_path)
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            state_dict = torch.load(model_path, map_location=device)
             self.model.load_state_dict(state_dict)
             self.model.eval()
         elif model_type == "yolo":

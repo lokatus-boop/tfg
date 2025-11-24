@@ -7,7 +7,8 @@ import streamlit as st
 import plotly.graph_objects as go
 import pandas as pd
 import supervision as sv
-import pims
+# import pims # Removed dependency
+from utils.video import VideoReader
 
 from trackers import (
     Keypoint, 
@@ -31,7 +32,7 @@ COLLECT_DATA = True
 def velocity_estimator(video_info: sv.VideoInfo):
         
     frame_index = st.slider(
-        "Frames", 
+        "Fotogramas", 
         0, 
         video_info.total_frames, 
         1, 
@@ -42,32 +43,32 @@ def velocity_estimator(video_info: sv.VideoInfo):
 
     with st.form("choose-frames"):
         frame_index_t0 = st.number_input(
-            "First frame: ", 
+            "Primer fotograma: ", 
             min_value=0,
             max_value=video_info.total_frames,
         )
         frame_index_t1 = st.number_input(
-            "Second frame: ", 
+            "Segundo fotograma: ", 
             min_value=1,
             max_value=video_info.total_frames,
         )
         impact_type_ch = st.radio(
-            "Impact type: ",
-            options=["Floor", "Player"],
+            "Tipo de impacto: ",
+            options=["Suelo", "Jugador"],
         )
         get_Vz = st.radio(
-            "Consider difference in ball altitude: ",
+            "Considerar diferencia en altitud de la bola: ",
             options=[False, True]
         )
 
-        estimate = st.form_submit_button("Calculate velocity")
+        estimate = st.form_submit_button("Calcular velocidad")
 
     if estimate:
 
         assert frame_index_t0 < frame_index_t1
 
         if st.session_state["players_tracker"] is None:
-            st.error("Data missing.")
+            st.error("Faltan datos.")
         else:
             estimator = BallVelocityEstimator(
                 source_video_fps=video_info.fps,
@@ -76,16 +77,16 @@ def velocity_estimator(video_info: sv.VideoInfo):
                 keypoints_detections=st.session_state["keypoints_tracker"].results.predictions,
             )
 
-            if impact_type_ch == "Floor":
+            if impact_type_ch == "Suelo":
                 impact_type = ImpactType.FLOOR
-            elif impact_type_ch == "Player":
+            elif impact_type_ch == "Jugador":
                 impact_type = ImpactType.RACKET
 
             ball_velocity_data, ball_velocity = estimator.estimate_velocity(
                 frame_index_t0, frame_index_t1, impact_type, get_Vz=get_Vz,
             )
             st.write(ball_velocity)
-            st.write("Velocity: ", ball_velocity.norm)
+            st.write("Velocidad: ", ball_velocity.norm)
             st.image(ball_velocity_data.draw_velocity(st.session_state["video"]))
             padel_court = padel_court_2d()
             padel_court.add_trace(
@@ -132,14 +133,34 @@ if "keypoints_tracker" not in st.session_state:
 if "runner" not in st.session_state:
     st.session_state["runner"] = None
 
-st.title("Padel Analytics")
+st.title("Analítica de Pádel")
 
 with st.form("run-video"):
     upload_video_path = st.text_input(
-        "Upload video: ",
+        "Subir video: ",
         INPUT_VIDEO_PATH,
     )
-    upload_video = st.form_submit_button("Upload")
+    upload_video = st.form_submit_button("Subir")
+
+# Check for weights
+required_weights = [
+    PLAYERS_TRACKER_MODEL,
+    PLAYERS_KEYPOINTS_TRACKER_MODEL,
+    BALL_TRACKER_MODEL,
+    BALL_TRACKER_INPAINT_MODEL,
+    KEYPOINTS_TRACKER_MODEL,
+]
+missing_weights = [w for w in required_weights if not os.path.exists(w)]
+
+if missing_weights:
+    st.error("¡Faltan archivos de pesos! Por favor descárgalos y colócalos en el directorio `weights`.")
+    st.write("Archivos faltantes:")
+    for w in missing_weights:
+        st.code(w)
+    st.warning("La aplicación no puede ejecutar la inferencia sin estos pesos.")
+    # Stop execution or disable button (but button is already rendered)
+    # We will just prevent the processing block from running if weights are missing
+    upload_video = False 
 
 if upload_video or st.session_state["video"] is not None:
 
@@ -149,20 +170,47 @@ if upload_video or st.session_state["video"] is not None:
     
     if st.session_state["df"] is None:
 
-        with st.spinner("Analysing video ..."):
-    
-            video_info = sv.VideoInfo.from_video_path(video_path="tmp.mp4")  
-            fps, w, h, total_frames = (
-                video_info.fps, 
-                video_info.width,
-                video_info.height,
-                video_info.total_frames,
-            ) 
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+
+        def update_progress(message, progress):
+            status_text.text(message)
+            progress_bar.progress(progress)
+
             
-            if FIXED_COURT_KEYPOINTS_LOAD_PATH is not None:
+        video_info = sv.VideoInfo.from_video_path(video_path="tmp.mp4")  
+        fps, w, h, total_frames = (
+            video_info.fps, 
+            video_info.width,
+            video_info.height,
+            video_info.total_frames,
+        ) 
+        
+        if FIXED_COURT_KEYPOINTS_LOAD_PATH is not None:
+            if os.path.exists(FIXED_COURT_KEYPOINTS_LOAD_PATH):
                 with open(FIXED_COURT_KEYPOINTS_LOAD_PATH, "r") as f:
                     SELECTED_KEYPOINTS = json.load(f)
+            else:
+                st.warning(f"Archivo de puntos clave no encontrado en {FIXED_COURT_KEYPOINTS_LOAD_PATH}. Usando puntos por defecto.")
+                # Default keypoints (approximate for a standard court view if available, or empty list to trigger detection)
+                # For now, we'll try to let the automatic detection handle it or provide a dummy list if needed.
+                # Based on main.py, it seems it might fall back to manual selection or automatic detection.
+                # Let's initialize it as empty list or handle it downstream.
+                SELECTED_KEYPOINTS = [] 
 
+        if not SELECTED_KEYPOINTS:
+                # Default to full screen if no keypoints found
+                # Order: Top-Left, Top-Right, Bottom-Left, Bottom-Right
+                # Indices used: 0 (TL), 1 (TR), -1 (BR), -2 (BL) -> TL -> TR -> BR -> BL
+                SELECTED_KEYPOINTS = [
+                    [0, 0],
+                    [w, 0],
+                    [0, h],
+                    [w, h]
+                ]
+
+        # Only use fixed keypoints if we have enough points for homography (12, 18, or 22)
+        if len(SELECTED_KEYPOINTS) in (12, 18, 22):
             st.session_state["fixed_keypoints_detection"] = Keypoints(
                 [
                     Keypoint(
@@ -172,109 +220,131 @@ if upload_video or st.session_state["video"] is not None:
                     for i, v in enumerate(SELECTED_KEYPOINTS)
                 ]
             )
+        else:
+            # Fallback to automatic detection if we don't have a valid fixed set
+            st.session_state["fixed_keypoints_detection"] = None
 
-            keypoints_array = np.array(SELECTED_KEYPOINTS)
-            # Polygon to filter person detections inside padel court
-            polygon_zone = sv.PolygonZone(
-                np.concatenate(
-                    (
-                        np.expand_dims(keypoints_array[0], axis=0), 
-                        np.expand_dims(keypoints_array[1], axis=0), 
-                        np.expand_dims(keypoints_array[-1], axis=0), 
-                        np.expand_dims(keypoints_array[-2], axis=0),
-                    ),
-                    axis=0
+        keypoints_array = np.array(SELECTED_KEYPOINTS)
+        # Polygon to filter person detections inside padel court
+        polygon_zone = sv.PolygonZone(
+            polygon=np.concatenate(
+                (
+                    np.expand_dims(keypoints_array[0], axis=0), 
+                    np.expand_dims(keypoints_array[1], axis=0), 
+                    np.expand_dims(keypoints_array[-1], axis=0), 
+                    np.expand_dims(keypoints_array[-2], axis=0),
                 ),
-                frame_resolution_wh=video_info.resolution_wh,
-            )
+                axis=0
+            ),
+            # frame_resolution_wh=video_info.resolution_wh, # Removed in newer supervision versions
+        )
 
-            # Instantiate trackers
-            st.session_state["players_tracker"] = PlayerTracker(
-                PLAYERS_TRACKER_MODEL,
-                polygon_zone,
-                batch_size=PLAYERS_TRACKER_BATCH_SIZE,
-                annotator=PLAYERS_TRACKER_ANNOTATOR,
-                show_confidence=True,
-                load_path=PLAYERS_TRACKER_LOAD_PATH,
-                save_path=PLAYERS_TRACKER_SAVE_PATH,
-            )
+        # Instantiate trackers
+        st.session_state["players_tracker"] = PlayerTracker(
+            PLAYERS_TRACKER_MODEL,
+            polygon_zone,
+            batch_size=PLAYERS_TRACKER_BATCH_SIZE,
+            annotator=PLAYERS_TRACKER_ANNOTATOR,
+            show_confidence=True,
+            load_path=None, # PLAYERS_TRACKER_LOAD_PATH, # Disable cache loading to force re-inference
+            save_path=PLAYERS_TRACKER_SAVE_PATH,
+        )
 
-            st.session_state["player_keypoints_tracker"] = PlayerKeypointsTracker(
-                PLAYERS_KEYPOINTS_TRACKER_MODEL,
-                train_image_size=PLAYERS_KEYPOINTS_TRACKER_TRAIN_IMAGE_SIZE,
-                batch_size=PLAYERS_KEYPOINTS_TRACKER_BATCH_SIZE,
-                load_path=PLAYERS_KEYPOINTS_TRACKER_LOAD_PATH,
-                save_path=PLAYERS_KEYPOINTS_TRACKER_SAVE_PATH,
-            )
+        st.session_state["player_keypoints_tracker"] = PlayerKeypointsTracker(
+            PLAYERS_KEYPOINTS_TRACKER_MODEL,
+            train_image_size=PLAYERS_KEYPOINTS_TRACKER_TRAIN_IMAGE_SIZE,
+            batch_size=PLAYERS_KEYPOINTS_TRACKER_BATCH_SIZE,
+            load_path=None, # PLAYERS_KEYPOINTS_TRACKER_LOAD_PATH,
+            save_path=PLAYERS_KEYPOINTS_TRACKER_SAVE_PATH,
+        )
 
-            st.session_state["ball_tracker"] = BallTracker(
-                BALL_TRACKER_MODEL,
-                BALL_TRACKER_INPAINT_MODEL,
-                batch_size=BALL_TRACKER_BATCH_SIZE,
-                median_max_sample_num=BALL_TRACKER_MEDIAN_MAX_SAMPLE_NUM,
-                median=None,
-                load_path=BALL_TRACKER_LOAD_PATH,
-                save_path=BALL_TRACKER_SAVE_PATH,
-            )
+        st.session_state["ball_tracker"] = BallTracker(
+            BALL_TRACKER_MODEL,
+            BALL_TRACKER_INPAINT_MODEL,
+            batch_size=BALL_TRACKER_BATCH_SIZE,
+            median_max_sample_num=BALL_TRACKER_MEDIAN_MAX_SAMPLE_NUM,
+            median=None,
+            load_path=None, # BALL_TRACKER_LOAD_PATH,
+            save_path=BALL_TRACKER_SAVE_PATH,
+        )
 
-            st.session_state["keypoints_tracker"] = KeypointsTracker(
-                model_path=KEYPOINTS_TRACKER_MODEL,
-                batch_size=KEYPOINTS_TRACKER_BATCH_SIZE,
-                model_type=KEYPOINTS_TRACKER_MODEL_TYPE,
-                fixed_keypoints_detection=st.session_state["fixed_keypoints_detection"],
-                load_path=KEYPOINTS_TRACKER_LOAD_PATH,
-                save_path=KEYPOINTS_TRACKER_SAVE_PATH,
-            )
+        st.session_state["keypoints_tracker"] = KeypointsTracker(
+            model_path=KEYPOINTS_TRACKER_MODEL,
+            batch_size=KEYPOINTS_TRACKER_BATCH_SIZE,
+            model_type=KEYPOINTS_TRACKER_MODEL_TYPE,
+            fixed_keypoints_detection=st.session_state["fixed_keypoints_detection"],
+            load_path=None, # KEYPOINTS_TRACKER_LOAD_PATH,
+            save_path=KEYPOINTS_TRACKER_SAVE_PATH,
+        )
 
-            runner = TrackingRunner(
-                trackers=[
-                    st.session_state["players_tracker"], 
-                    st.session_state["player_keypoints_tracker"], 
-                    st.session_state["ball_tracker"],
-                    st.session_state["keypoints_tracker"],    
-                ],
-                video_path="tmp.mp4",
-                inference_path=OUTPUT_VIDEO_PATH,
-                start=0,
-                end=MAX_FRAMES,
-                collect_data=COLLECT_DATA,
-            )
+        runner = TrackingRunner(
+            trackers=[
+                st.session_state["players_tracker"], 
+                st.session_state["player_keypoints_tracker"], 
+                st.session_state["ball_tracker"],
+                st.session_state["keypoints_tracker"],    
+            ],
+            video_path="tmp.mp4",
+            inference_path=OUTPUT_VIDEO_PATH,
+            start=0,
+            end=MAX_FRAMES,
+            collect_data=COLLECT_DATA,
+        )
 
-            runner.run()
+        runner.run(status_callback=update_progress)
 
-            st.session_state["runner"] = runner
+        st.session_state["runner"] = runner
 
-            st.session_state["df"]  = runner.data_analytics.into_dataframe(
-                runner.video_info.fps,
-            )
+        st.session_state["df"]  = runner.data_analytics.into_dataframe(
+            runner.video_info.fps,
+        )
 
-            st.success("Done.")
+        st.success("Hecho.")
     
-    st.session_state["video"] = pims.Video("tmp.mp4")
-    st.subheader("Uploaded Video")
+    st.session_state["video"] = VideoReader("tmp.mp4")
+    st.subheader("Video Subido")
     st.video("tmp.mp4")
     
-    estimate_velocity = st.checkbox("Calculate Ball Velocity")
+    estimate_velocity = st.checkbox("Calcular Velocidad de la Bola")
     if estimate_velocity:
-        st.write("Select a frame to calculate ball velocity:")
+        st.write("Selecciona un fotograma para calcular la velocidad de la bola:")
         velocity_estimator(st.session_state["runner"].video_info)
     
     if st.session_state["df"] is not None:
-        st.header("Collected data")
-        st.write("First 5 rows")
+        st.header("Datos Recolectados")
+        
+        # Download buttons
+        csv = st.session_state["df"].to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="Descargar Reporte (CSV)",
+            data=csv,
+            file_name='padel_analytics_report.csv',
+            mime='text/csv',
+        )
+        
+        if os.path.exists(OUTPUT_VIDEO_PATH):
+            with open(OUTPUT_VIDEO_PATH, "rb") as file:
+                btn = st.download_button(
+                    label="Descargar Video Procesado",
+                    data=file,
+                    file_name="video_procesado.mp4",
+                    mime="video/mp4"
+                )
+
+        st.write("Primeras 5 filas")
         st.dataframe(st.session_state["df"].head())
-        st.markdown(f"- Number of rows: {len(st.session_state["df"])}")
+        st.markdown(f"- Número de filas: {len(st.session_state['df'])}")
         # st.write("- Columns: ")
         # st.write(st.session_state["df"].columns)
 
         velocity_type_choice = st.radio(
-            "Type", 
-            ["Horizontal", "Vertical", "Absolute"],
+            "Tipo", 
+            ["Horizontal", "Vertical", "Absoluta"],
         )
         velocity_type_mapper = {
             "Horizontal": "x",
             "Vertical": "y",
-            "Absolute": "norm",
+            "Absoluta": "norm",
         }
         velocity_type = velocity_type_mapper[velocity_type_choice]
         fig = go.Figure()
@@ -289,7 +359,7 @@ if upload_video or st.session_state["video"] is not None:
                         ].to_numpy()
                     ),
                     mode='lines',
-                    name=f'Player {player_id}',
+                    name=f'Jugador {player_id}',
                 ),
             )
 
@@ -319,30 +389,40 @@ if upload_video or st.session_state["video"] is not None:
 
         st.dataframe(pd.DataFrame(players_data).set_index("player_id"))
 
-        st.subheader("Players velocity as a function of time")
+        st.subheader("Velocidad de los jugadores en función del tiempo")
 
         st.plotly_chart(fig)
 
-        st.subheader("Analyze players position, velocity and acceleration")
+        st.subheader("Analizar posición, velocidad y aceleración de los jugadores")
         
         col1, col2 = st.columns((1, 1))
 
+        st.subheader("Seguimiento y Análisis de Jugador Individual")
+        
         with col1:
-            player_choice = st.radio("Player: ", options=[1, 2, 3, 4])
+            player_choice = st.radio("Seleccionar Jugador a Rastrear: ", options=[1, 2, 3, 4])
         
         with col2:
+            # Handle potential NaN values if no velocity data is available
             min_value = st.session_state["df"][
                 f"player{player_choice}_V{velocity_type}4"
             ].abs().min()
             max_value = st.session_state["df"][
                 f"player{player_choice}_V{velocity_type}4"
             ].abs().max()
-            velocity_interval = st.slider(
-                "Velocity Interval",
-                min_value, 
-                max_value,
-                (min_value, max_value),
-            )
+
+            if pd.isna(min_value) or pd.isna(max_value):
+                st.warning(f"No hay datos de velocidad disponibles para el Jugador {player_choice}.")
+                min_value = 0.0
+                max_value = 1.0 # Default range to avoid slider error
+                velocity_interval = (0.0, 1.0)
+            else:
+                velocity_interval = st.slider(
+                    "Intervalo de Velocidad",
+                    float(min_value), 
+                    float(max_value),
+                    (float(min_value), float(max_value)),
+                )
 
         st.session_state["df"]["QUERY_VELOCITY"] = st.session_state["df"][
             f"player{player_choice}_V{velocity_type}4"
@@ -358,7 +438,7 @@ if upload_video or st.session_state["video"] is not None:
                 x=df_scatter[f"player{player_choice}_x"],
                 y=df_scatter[f"player{player_choice}_y"] * -1,
                 mode="markers",
-                name=f"Player {player_choice}",
+                name=f"Jugador {player_choice}",
                 text=df_scatter[
                     f"player{player_choice}_V{velocity_type}4"
                 ].abs() * 3.6,
@@ -379,7 +459,7 @@ if upload_video or st.session_state["video"] is not None:
 
         padel_court = padel_court_2d()
         time_span = st.slider(
-            "Time Interval",
+            "Intervalo de Tiempo",
             0.0, 
             st.session_state["df"]["time"].max(),
         )
@@ -391,7 +471,7 @@ if upload_video or st.session_state["video"] is not None:
                 x=df_time[f"player{player_choice}_x"],
                 y=df_time[f"player{player_choice}_y"] * -1,
                 mode="markers",
-                name=f"Player {player_choice}",
+                name=f"Jugador {player_choice}",
                 text=df_time[
                     f"player{player_choice}_V{velocity_type}4"
                 ].abs() * 3.6,
@@ -409,7 +489,46 @@ if upload_video or st.session_state["video"] is not None:
         )
         st.plotly_chart(padel_court)
 
+        st.subheader("Clasificación de Golpes")
         
+        from analytics.shot_detector import ShotDetector
+        shot_detector = ShotDetector()
+        
+        # Run detection
+        shots_df = shot_detector.detect_shots(st.session_state["df"], st.session_state["runner"].video_info.fps)
+        
+        if not shots_df.empty:
+            st.write(f"Total de golpes detectados: {len(shots_df)}")
+            
+            # Display shots dataframe
+            st.dataframe(shots_df)
+            
+            # Stats per player
+            st.write("Golpes por Jugador:")
+            shots_per_player = shots_df.groupby("player_id")["shot_type"].value_counts().unstack().fillna(0)
+            st.dataframe(shots_per_player)
+            
+            # Average speed per player
+            st.write("Velocidad Media de la Bola (km/h) por Jugador:")
+            avg_speed = shots_df.groupby("player_id")["ball_speed"].mean()
+            st.dataframe(avg_speed)
+
+            # Timeline
+            fig_timeline = go.Figure()
+            for player_id in shots_df["player_id"].unique():
+                player_shots = shots_df[shots_df["player_id"] == player_id]
+                fig_timeline.add_trace(go.Scatter(
+                    x=player_shots["frame"] / st.session_state["runner"].video_info.fps,
+                    y=player_shots["ball_speed"],
+                    mode='markers',
+                    name=f'Jugador {player_id}',
+                    text=player_shots["shot_type"]
+                ))
+            fig_timeline.update_layout(title="Línea de Tiempo de Golpes (Velocidad vs Tiempo)", xaxis_title="Tiempo (s)", yaxis_title="Velocidad (km/h)")
+            st.plotly_chart(fig_timeline)
+
+        else:
+            st.warning("No se detectaron golpes. Verifica si el rastreo de la bola funciona correctamente.")
 
         def plotly_fig2array(fig):
             """
@@ -449,7 +568,7 @@ if upload_video or st.session_state["video"] is not None:
                                 x=x_values,
                                 y=y_values,
                                 mode="markers",
-                                name=f"Player {player_choice}",
+                                name=f"Jugador {player_choice}",
                                 text=v_values,
                                 marker=dict(
                                     color=v_values,
