@@ -10,12 +10,12 @@ services:
       - ./cache:/app/cache
       # Mount output file to host if desired, though app has download button
       - ./results.mp4:/app/results.mp4
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [ gpu ]
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [ gpu ]
     stdin_open: true # docker run -i
     tty: true # docker run -t
