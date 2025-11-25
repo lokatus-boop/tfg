@@ -44,6 +44,6 @@ BALL_TRACKER_SAVE_PATH = "./cache/ball_detections.json"
 KEYPOINTS_TRACKER_MODEL = "./weights/court_keypoints_detection/best.pt"
 KEYPOINTS_TRACKER_BATCH_SIZE = 8
 KEYPOINTS_TRACKER_MODEL_TYPE = "yolo"
-KEYPOINTS_TRACKER_LOAD_PATH = None
-KEYPOINTS_TRACKER_SAVE_PATH = None # "./cache/keypoints_detections.json"
+KEYPOINTS_TRACKER_LOAD_PATH = "./cache/keypoints_detections.json"
+KEYPOINTS_TRACKER_SAVE_PATH = "./cache/keypoints_detections.json"
 
