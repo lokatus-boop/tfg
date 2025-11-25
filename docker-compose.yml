@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   padel-analytics:
     build: .
@@ -18,6 +16,6 @@ services:
           devices:
             - driver: nvidia
               count: 1
-              capabilities: [gpu]
+              capabilities: [ gpu ]
     stdin_open: true # docker run -i
-    tty: true        # docker run -t
+    tty: true # docker run -t
