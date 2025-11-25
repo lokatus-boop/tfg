@@ -20,9 +20,22 @@
 
 Puedes ejecutar la aplicación de dos formas: usando **Docker** (recomendado) o instalando las dependencias localmente.
 
+### 0. Descargar Pesos (Modelos)
+
+**IMPORTANTE**: Antes de ejecutar la aplicación, necesitas descargar los modelos de Inteligencia Artificial (pesos).
+
+1.  Descarga los archivos desde este enlace: [Google Drive - Model Weights](https://drive.google.com/drive/folders/1joO7w1Am7B418SIqGBq90YipQl81FMzh)
+2.  Descomprime o coloca los archivos dentro de la carpeta `weights/` en la raíz del proyecto.
+    *   La estructura debe quedar así: `padel_analisis/weights/players_detection/yolov8m.pt`, etc.
+
 ### Opción A: Docker (Recomendado)
 
-Esta opción funciona en cualquier sistema operativo (Windows, Mac, Linux) sin necesidad de configurar Python ni CUDA manualmente.
+Esta opción es la **más sencilla y robusta**. Funciona en:
+*   **Windows** (con Docker Desktop + WSL2).
+*   **Mac** (Intel y Apple Silicon M1/M2/M3).
+*   **Linux**.
+
+No necesitas instalar Python ni CUDA manualmente.
 
 1.  **Instala Docker Desktop**: [Descargar aquí](https://www.docker.com/products/docker-desktop/).
 2.  **Clona el repositorio**:
