@@ -142,7 +142,7 @@ El corazón determinista que acompaña a la IA. Evalúa los datos `DataFrame` po
 
 Casi todo proyecto Machine Learning requiere afinación de hiperparámetros. En `padel_analisis`, están extraídos al patrón clásico *Constants file* (`config.py`):
 *   **Rutas**: Centraliza los mapeos a los pesos dentro del *path* relativo o para persistencia en `./cache/` (útil en Docker).
-*   `_BATCH_SIZE`: Fundamental para equilibrar consumo de VRAM (Memoria de Vídeo) y rapidez. Por defecto es 8 o tamaños bajos para acomodar a gráficas modestas de desarrollo.
+*   `_BATCH_SIZE`: Fundamental para equilibrar consumo de VRAM (Memoria de Vídeo) y rapidez. Por defecto es `8` para un balance en GPUs modernas. **Aviso de Hardware Antiguo**: Si el script lanza un error fatal tipo `CUDA out of memory`, significa que los tensores del batch exceden la capacidad VRAM (típico en gráficas de 2GB o 4GB). En estos casos, se debe editar `config.py` y reducir el valor de `PLAYERS_TRACKER_BATCH_SIZE` y similares a `2` o `1`.
 *   **Opciones Booleanas Generales**: Como `COLLECT_DATA`, vital tenerla en `True` si queremos que el output no solo dibuje, sino que levante los reportes analíticos para el DataFrame final.
 
 ---

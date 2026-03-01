@@ -16,3 +16,9 @@ videos/
 train/
 models/
 Miniconda3-latest-Linux-x86_64.sh
+
+# Python Virtual Environments
+venv/
+env/
+.env/
+pip-wheel-metadata/

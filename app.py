@@ -418,6 +418,9 @@ if (upload_video or st.session_state["video"] is not None) and uploaded_csv is N
 
         runner.run(status_callback=update_progress)
 
+        print("\n" + "="*50)
+        print("✅ ANÁLISIS DEL VÍDEO COMPLETADO CON ÉXITO")
+        print("="*50 + "\n")
 
         st.session_state["runner"] = runner
 

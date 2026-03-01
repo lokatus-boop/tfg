@@ -49,6 +49,47 @@ class ProfessionalPadelReport(FPDF):
         self.set_font(FONT_FAMILY, 'B', 10)
         self.cell(0, 10, "TFG - Luis Miguel Sanz Fernandez", align='C')
 
+    def add_section_title(self, title: str):
+        self.ln(10)
+        self.set_font(FONT_FAMILY, 'B', 16)
+        self.set_text_color(*COLOR_PRIMARY)
+        self.cell(0, 10, title, ln=True)
+        # Línea separadora elegante
+        self.set_draw_color(*COLOR_SECONDARY)
+        self.set_line_width(0.5)
+        self.line(10, self.get_y(), 200, self.get_y())
+        self.ln(5)
+
+# --- RESUMEN EJECUTIVO (TEXTO AUTO-GENERADO) ---
+def build_executive_summary(stats: list, shots_df: pd.DataFrame = None) -> str:
+    # stats: [{'id': 1, 'distancia': X, 'v_max': Y, 'v_avg': Z}, ...]
+    if not stats: return "No hay suficientes datos físicos para generar un resumen."
+    
+    # Encontrar MVP físico (el que más corre)
+    most_active = max(stats, key=lambda x: x['distancia'])
+    fastest = max(stats, key=lambda x: x['v_max'])
+    
+    summary = (
+        f"El Jugador {most_active['id']} ha sido el jugador más activo del fragmento analizado, "
+        f"cubriendo una distancia total de {most_active['distancia']:.1f} metros. "
+    )
+    
+    if fastest['v_max'] > 10:
+        summary += (
+            f"El pico de velocidad punta en carrera se ha registrado en el Jugador {fastest['id']}, "
+            f"alcanzando los {fastest['v_max']:.1f} km/h en máxima aceleración. "
+        )
+        
+    if shots_df is not None and not shots_df.empty:
+        total_shots = len(shots_df)
+        most_shots_pid = shots_df['player_id'].mode()[0] if not shots_df.empty else "N/A"
+        summary += (
+            f"A nivel técnico, se han detectado un total de {total_shots} impactos reales de bola, "
+            f"siendo el Jugador {int(most_shots_pid)} el que más intervenciones con la pala ha tenido."
+        )
+        
+    return summary
+
 # --- GRÁFICOS MATPLOTLIB ---
 
 def draw_court_lines(ax):
@@ -124,17 +165,24 @@ def generate_comparison_chart(stats_data, filename):
     values = [d['distancia'] for d in stats_data]
     
     plt.figure(figsize=(8, 3))
-    colors = ['#3498db', '#e67e22', '#2ecc71', '#e74c3c']
+    colors = ['#2980b9', '#34495e', '#16a085', '#d35400'] # Paleta más corporativa
     
-    bars = plt.barh(players, values, color=colors)
-    plt.title("Distancia Recorrida (Metros)", fontweight='bold')
-    plt.xlabel("Metros")
-    plt.grid(axis='x', linestyle='--', alpha=0.3)
+    # Quitar bordes innecesarios (Spines)
+    ax = plt.gca()
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['left'].set_visible(False)
+    
+    bars = plt.barh(players, values, color=colors, alpha=0.9)
+    plt.title("Distancia Recorrida (Metros)", fontweight='bold', color='#2c3e50')
+    plt.xlabel("Metros", color='#7f8c8d')
+    plt.grid(axis='x', linestyle=':', alpha=0.5, color='#95a5a6')
+    ax.tick_params(axis='y', left=False) # Quitar rayitas del eje Y
     
     for bar in bars:
         width = bar.get_width()
-        plt.text(width + 0.5, bar.get_y() + bar.get_height()/2, 
-                 f'{int(width)}m', va='center', fontsize=9)
+        plt.text(width + 0.3, bar.get_y() + bar.get_height()/2, 
+                 f'{int(width)}m', va='center', fontsize=9, color='#34495e', fontweight='bold')
     
     plt.tight_layout()
     plt.savefig(filename, dpi=150)
@@ -142,19 +190,24 @@ def generate_comparison_chart(stats_data, filename):
 
 def generate_timeline(df, filename):
     plt.figure(figsize=(10, 3))
-    colors = ['#3498db', '#e67e22', '#2ecc71', '#e74c3c']
+    colors = ['#2980b9', '#34495e', '#16a085', '#d35400']
+    
+    ax = plt.gca()
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    
     for i in range(1, 5):
         col = f'player{i}_Vnorm4'
         if col in df.columns:
             # Suavizado para gráfica limpia
             y = df[col].abs().rolling(window=45, min_periods=1).mean() * 3.6
-            plt.plot(df['time'], y, label=f'J{i}', color=colors[i-1], lw=1.5)
+            plt.plot(df['time'], y, label=f'J{i}', color=colors[i-1], lw=1.8, alpha=0.85)
             
-    plt.legend(loc='upper right', fontsize='small')
-    plt.title("Evolución de Intensidad (Velocidad km/h)", fontweight='bold')
-    plt.ylabel("km/h")
-    plt.xlabel("Tiempo (s)")
-    plt.grid(True, alpha=0.3)
+    plt.legend(loc='upper right', frameon=False, fontsize='small')
+    plt.title("Evolución de Intensidad Físico-Táctica (km/h)", fontweight='bold', color='#2c3e50')
+    plt.ylabel("km/h", color='#7f8c8d')
+    plt.xlabel("Tiempo (s)", color='#7f8c8d')
+    plt.grid(True, linestyle=':', alpha=0.5, color='#95a5a6')
     plt.tight_layout()
     plt.savefig(filename, dpi=150)
     plt.close()
@@ -192,22 +245,33 @@ def create_full_report(csv_path, output_pdf="Informe_Partido.pdf", shots_csv_pat
     # --- INICIO PDF ---
     pdf = ProfessionalPadelReport()
     
+    # Intentar cargar CSV de golpes para el resumen
+    shots_df_loaded = None
+    if shots_csv_path and os.path.exists(shots_csv_path):
+        try:
+            shots_df_loaded = pd.read_csv(shots_csv_path)
+        except:
+            pass
+
     # P1: PORTADA
     pdf.draw_cover_page()
     
-    # P2: DATOS FÍSICOS
+    # P2: DATOS FÍSICOS Y RESUMEN
     pdf.add_page()
-    pdf.ln(15)
-    pdf.set_font(FONT_FAMILY, 'B', 16)
-    pdf.set_text_color(*COLOR_PRIMARY)
-    pdf.cell(0, 10, "1. Análisis Físico y Métricas", ln=True)
-    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-    pdf.ln(5)
+    pdf.add_section_title("1. Resumen Ejecutivo")
     
-    # Tabla
+    # Bloque de Texto Ejecutivo
+    summary_text = build_executive_summary(stats, shots_df_loaded)
+    pdf.set_font(FONT_FAMILY, '', 11)
+    pdf.set_text_color(50, 50, 50)
+    pdf.multi_cell(0, 7, summary_text)
+    
+    pdf.add_section_title("2. Análisis Físico y Métricas")
+    
+    # Tabla FÍSICA Estilo ZEBRA
     pdf.set_font(FONT_FAMILY, 'B', 10)
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_fill_color(240, 240, 240)
+    pdf.set_text_color(255, 255, 255) # Texto blanco para cabecera
+    pdf.set_fill_color(*COLOR_PRIMARY) # Fondo cabecera corporativo
     
     cols = ["Jugador", "Distancia (m)", "Vel. Máx (km/h)", "Vel. Media (km/h)"]
     widths = [30, 40, 45, 45]
@@ -215,30 +279,34 @@ def create_full_report(csv_path, output_pdf="Informe_Partido.pdf", shots_csv_pat
     
     pdf.set_x(x_start)
     for w, c in zip(widths, cols):
-        pdf.cell(w, 8, c, border=1, fill=True, align='C')
+        pdf.cell(w, 8, c, border=0, fill=True, align='C')
     pdf.ln()
     
     pdf.set_font(FONT_FAMILY, '', 10)
-    for s in stats:
+    pdf.set_text_color(40, 40, 40)
+    
+    for row_idx, s in enumerate(stats):
         pdf.set_x(x_start)
-        pdf.cell(widths[0], 8, f"Jugador {s['id']}", border=1, align='C')
-        pdf.cell(widths[1], 8, f"{s['distancia']:.1f}", border=1, align='C')
-        pdf.cell(widths[2], 8, f"{s['v_max']:.1f}", border=1, align='C')
-        pdf.cell(widths[3], 8, f"{s['v_avg']:.1f}", border=1, align='C')
+        # Modo Zebra
+        if row_idx % 2 == 0:
+            pdf.set_fill_color(245, 245, 245) # Fila Gris Clara
+        else:
+             pdf.set_fill_color(255, 255, 255) # Fila Blanca
+
+        pdf.cell(widths[0], 8, f"Jugador {s['id']}", border='B', align='C', fill=True)
+        pdf.cell(widths[1], 8, f"{s['distancia']:.1f}", border='B', align='C', fill=True)
+        pdf.cell(widths[2], 8, f"{s['v_max']:.1f}", border='B', align='C', fill=True)
+        pdf.cell(widths[3], 8, f"{s['v_avg']:.1f}", border='B', align='C', fill=True)
         pdf.ln()
     
-    pdf.ln(10)
+    pdf.ln(8)
     pdf.image("chart_bars.png", x=20, w=170)
     pdf.ln(5)
     pdf.image("chart_time.png", x=15, w=180)
     
     # P3: HEATMAPS (GRID FIJO)
     pdf.add_page()
-    pdf.ln(15)
-    pdf.set_font(FONT_FAMILY, 'B', 16)
-    pdf.set_text_color(*COLOR_PRIMARY)
-    pdf.cell(0, 10, "2. Ocupación de Pista (Mapas de Calor)", ln=True)
-    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.add_section_title("3. Ocupación de Pista (Mapas de Calor)")
     
     # GRID 2x2
     y_row1 = 50
@@ -268,59 +336,61 @@ def create_full_report(csv_path, output_pdf="Informe_Partido.pdf", shots_csv_pat
     # P4: ANÁLISIS DE GOLPES (NUEVA PÁGINA)
     if shots_csv_path and os.path.exists(shots_csv_path):
         pdf.add_page()
-        pdf.ln(15)
-        pdf.set_font(FONT_FAMILY, 'B', 16)
-        pdf.set_text_color(*COLOR_PRIMARY)
-        pdf.cell(0, 10, "3. Análisis de Golpes Detectados", ln=True)
-        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-        pdf.ln(5)
+        pdf.add_section_title("4. Análisis de Golpes Detectados")
 
         # 1. Gráfico de Golpes
         if shots_chart_path and os.path.exists(shots_chart_path):
              pdf.image(shots_chart_path, x=10, w=190)
              pdf.ln(10)
 
-        # 2. Tabla de Golpes
+        # 2. Tabla de Golpes ZEBRA
         pdf.set_font(FONT_FAMILY, 'B', 12)
-        pdf.cell(0, 10, "Detalle de Impactos", ln=True)
+        pdf.set_text_color(*COLOR_PRIMARY)
+        pdf.cell(0, 10, "Detalle Cronológico de Impactos", ln=True)
+        pdf.ln(3)
         
         try:
-            shots_df = pd.read_csv(shots_csv_path)
+            # Reutilizar df cargado arriba
+            shots_df = shots_df_loaded if shots_df_loaded is not None else pd.read_csv(shots_csv_path)
             
-            # Encabezado Tabla
+            # Encabezado Tabla Corporativo
             pdf.set_font(FONT_FAMILY, 'B', 10)
-            pdf.set_text_color(0, 0, 0)
-            pdf.set_fill_color(240, 240, 240)
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_fill_color(*COLOR_PRIMARY)
             
-            # Definir columnas a mostrar
-            # Asumimos que el CSV tiene: player_id, frame, ball_speed, shot_type (opcional)
             table_cols = ["Jugador", "Frame", "Velocidad (km/h)", "Tipo"]
             table_widths = [30, 40, 40, 50]
             
-            # Centrar tabla
             x_table = (210 - sum(table_widths)) / 2
             pdf.set_x(x_table)
             
             for w, c in zip(table_widths, table_cols):
-                pdf.cell(w, 8, c, border=1, fill=True, align='C')
+                pdf.cell(w, 8, c, border=0, fill=True, align='C')
             pdf.ln()
             
-            # Filas de la tabla (Limitamos a las primeras 35 para que quepa en una página)
+            # Filas
             pdf.set_font(FONT_FAMILY, '', 9)
+            pdf.set_text_color(40, 40, 40)
             
             for idx, row in shots_df.iterrows():
                 if idx > 35: break # Evitar desbordamiento de página simple
                 
                 pdf.set_x(x_table)
+                
+                if idx % 2 == 0:
+                    pdf.set_fill_color(248, 248, 248) 
+                else:
+                    pdf.set_fill_color(255, 255, 255)
+
                 pid = f"J{int(row.get('player_id', 0))}"
                 frame = str(int(row.get('frame', 0)))
                 speed = f"{float(row.get('ball_speed', 0)):.1f}"
                 stype = str(row.get('shot_type', 'N/A'))
                 
-                pdf.cell(table_widths[0], 7, pid, border=1, align='C')
-                pdf.cell(table_widths[1], 7, frame, border=1, align='C')
-                pdf.cell(table_widths[2], 7, speed, border=1, align='C')
-                pdf.cell(table_widths[3], 7, stype, border=1, align='C')
+                pdf.cell(table_widths[0], 7, pid, border='B', align='C', fill=True)
+                pdf.cell(table_widths[1], 7, frame, border='B', align='C', fill=True)
+                pdf.cell(table_widths[2], 7, speed, border='B', align='C', fill=True)
+                pdf.cell(table_widths[3], 7, stype, border='B', align='C', fill=True)
                 pdf.ln()
 
             if len(shots_df) > 35:

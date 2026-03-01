@@ -354,7 +354,7 @@ class DataAnalytics:
                 df[f"ball_Ax{frame_interval}"]**2 + df[f"ball_Ay{frame_interval}"]**2
             )
         
-        return df
+        return df.copy()
 
 
         
