@@ -2,8 +2,8 @@
 
 **Padel Analytics** es una herramienta avanzada de análisis de vídeo para pádel que utiliza Inteligencia Artificial (Computer Vision) para extraer métricas de rendimiento, trayectorias y estadísticas de juego a partir de grabaciones de vídeo estándar.
 
-![Padel Analytics Demo](https://github.com/LuismiSanz/padel_analisis/raw/main/docs/demo.gif)
-*(Nota: Puedes añadir un GIF o imagen de demostración aquí)*
+![Padel Analisis TFG](https://github.com/LuismiSanz/padel_analisis/raw/main/docs/demo.gif)
+
 
 ## 🚀 Características Principales
 
@@ -102,7 +102,7 @@ En la barra lateral o al final del reporte, encontrarás botones para descargar:
 
 ---
 
-## 📂 Estructura del Proyecto
+## Estructura del Proyecto
 
 *   `app.py`: Punto de entrada de la aplicación web (Streamlit).
 *   `trackers/`: Módulos de detección (Jugadores, Pelota, Keypoints).
@@ -110,11 +110,15 @@ En la barra lateral o al final del reporte, encontrarás botones para descargar:
 *   `weights/`: Modelos pre-entrenados (YOLO, TrackNet).
 *   `docker-compose.yml`: Configuración para despliegue en contenedores.
 
-## 🤝 Contribución
+## Contribución
 
-Las contribuciones son bienvenidas. Por favor, abre un *Issue* para discutir cambios mayores antes de enviar un *Pull Request*.
+No se admiten contribuciones al ser un proyecto TF.
 
-## 📄 Licencia
+## Licencia
 
 Este proyecto está bajo la licencia **Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)**. 
 Esto implica que puedes usar, modificar y compartir el código libremente para fines **académicos, educativos o privados, siempre sin ánimo de lucro**. Cualquier uso comercial o de monetización está estrictamente prohibido sin el consentimiento expreso del autor.
+
+## Menciones
+
+Este proyecto nace del proyecto anterior de João Miguel Freitas da Silva. Se han usado sus pesos que estaba disponibles y la estructura para mejorar y modificarlo para la realización de este TFG.
