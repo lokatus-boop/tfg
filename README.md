@@ -18,7 +18,6 @@
 
 ## 🛠️ Instalación y Uso
 
-Puedes ejecutar la aplicación de dos formas: usando **Docker** (recomendado) o instalando las dependencias localmente.
 
 ### 0. Descargar Pesos (Modelos)
 
