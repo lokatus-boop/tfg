@@ -1,0 +1,13 @@
+ffmpeg
+matplotlib
+opencv-python
+pims
+plotly
+seaborn 
+supervision
+ultralytics
+streamlit
+parse
+fpdf
+streamlit-drawable-canvas
+kaleido

@@ -8,6 +8,7 @@ services:
       - ./weights:/app/weights
       - ./examples:/app/examples
       - ./cache:/app/cache
+      - ./outputs:/app/outputs
       # Mount output file to host if desired, though app has download button
       - ./results.mp4:/app/results.mp4
     # deploy:

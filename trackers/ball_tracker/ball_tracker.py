@@ -18,7 +18,8 @@ from trackers.ball_tracker.iterable import BallTrajectoryIterable
 from trackers.ball_tracker.predict import predict, predict_modified
 from trackers.tracker import Object, Tracker, NoPredictSample
 
-
+# --- INTEGRACIÓN KALMAN FILTER ---
+from filters.kalman_filter import PadelBallKalmanFilter 
 
 def get_model(
     model_name: Literal["TrackNet", "InpaintNet"], 
@@ -27,25 +28,6 @@ def get_model(
 ) -> torch.nn.Module:
     """ 
     Create model by name and the configuration parameter.
-
-    Parameters:
-        model_name: type of model to create
-            Choices:
-                - 'TrackNet': Return TrackNet model
-                - 'InpaintNet': Return InpaintNet model
-        
-        seq_len: length of TrackNet input sequence 
-        bg_mode: background mode of TrackNet
-            Choices:
-                - '': return TrackNet with L x 3 input channels (RGB)
-                - 'subtract': return TrackNet with L x 1 input channel 
-                    (Difference frame)
-                - 'subtract_concat': return TrackNet with L x 4 input channels
-                    (RGB + Difference frame)
-                - 'concat': return TrackNet with (L+1) x 3 input channels (RGB)
-
-    Returns:
-        model with specified configuration
     """
 
     if model_name == 'TrackNet':
@@ -71,16 +53,6 @@ def get_ensemble_weight(
 ) -> torch.Tensor:
     """ 
     Get weight for temporal ensemble.
-
-    Parameters:
-        seq_len: Length of input sequence
-        eval_mode: Mode of temporal ensemble
-            Choices:
-                - 'average': return uniform weight
-                - 'weight': return positional weight
-        
-        Returns:
-            weight for temporal ensemble
     """
 
     if eval_mode == 'average':
@@ -100,14 +72,6 @@ def get_ensemble_weight(
 def generate_inpaint_mask(pred_dict: dict, th_h: float=30) -> list:
     """ 
     Generate inpaint mask form predicted trajectory.
-
-    Parameters:
-        pred_dict: prediction result
-            Format: {'Frame':[], 'X':[], 'Y':[], 'Visibility':[]}
-        th_h: height threshold (pixels) for y coordinate
-        
-    Returns:
-        inpaint mask
     """
     y = np.array(pred_dict['y'])
     vis_pred = np.array(pred_dict['visibility'])
@@ -140,12 +104,6 @@ class Ball(Object):
 
     """
     Ball detection in a given video frame
-
-    Attributes:
-        frame: frame associated with the given ball detection
-        xy: ball position coordinates
-        visibility: 1 if the ball is visible in the given frame
-        projection: ball position 2d court projection 
     """
 
     def __init__(
@@ -181,15 +139,15 @@ class Ball(Object):
         """
         Draw ball detection in a given frame
         """
-
-        cv2.circle(
-            frame,
-            self.asint(),
-            6,
-            (0, 255, 0),
-            -1,
-        )
-
+        # Solo dibujamos si es visible o si el filtro Kalman ha rellenado la posición de forma válida
+        if self.visibility == 1:
+            cv2.circle(
+                frame,
+                self.asint(),
+                5,
+                (0, 255, 0), # Verde
+                -1,
+            )
         return frame
     
     def draw_projection(self, frame: np.ndarray) -> np.ndarray:
@@ -209,19 +167,6 @@ class BallTracker(Tracker):
 
     """
     Tracker of ball object
-
-    Attributes:
-        tracking_model_path: tracknet model path
-        inpainting_model_path: inpainting model path
-        median_max_sample_num: maximum number of frames to sample for 
-            generating median image
-        median: background estimation
-        load_path: serializable tracker results path 
-        save_path: path to save serializable tracker results
-
-    Note: 
-        its important to filter frames of interest before feeding the 
-        video to the model
     """
 
     EVAL_MODE: str = "weight"
@@ -277,9 +222,15 @@ class BallTracker(Tracker):
         self.batch_size = batch_size
         self.median_max_sample_num = median_max_sample_num
         self.median = median
+
+        # Inicializamos el filtro con 30fps por defecto (se actualizará luego)
+        self.kalman = PadelBallKalmanFilter(fps=30) 
     
     def video_info_post_init(self, video_info: sv.VideoInfo) -> "BallTracker":
         self.video_info = video_info
+        # Actualizamos el filtro con los FPS reales del video
+        if hasattr(self.video_info, 'fps') and self.video_info.fps > 0:
+             self.kalman = PadelBallKalmanFilter(fps=self.video_info.fps)
         return self
     
     def object(self) -> Type[Object]:
@@ -298,15 +249,7 @@ class BallTracker(Tracker):
         pass
     
     def draw_traj(self, img, traj, radius=3, color='red') -> np.ndarray:
-        """ Draw trajectory on the image.
-
-            Args:
-                img (numpy.ndarray): Image with shape (H, W, C)
-                traj (deque): Trajectory to draw
-
-            Returns:
-                img (numpy.ndarray): Image with trajectory drawn
-        """
+        """ Draw trajectory on the image. """
         # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)   
         img = Image.fromarray(img)
         
@@ -420,7 +363,6 @@ class BallTracker(Tracker):
         video_len = total_frames
 
         ### Init prediction buffer params ###
-        # Number of samples of seq_len frames
         num_sample, sample_count = video_len - seq_len + 1, 0
         buffer_size = seq_len - 1
         sample_indices = torch.arange(seq_len) # [0, 1, 2, 3, 4, 5, 6, 7]
@@ -434,7 +376,6 @@ class BallTracker(Tracker):
             ), 
             dtype=torch.float32,
         )
-        # Weights for the frame prediction ensemble along the distinct samples position
         weight = get_ensemble_weight(seq_len, self.EVAL_MODE)
 
         for x in tqdm(data_loader):
@@ -459,15 +400,11 @@ class BallTracker(Tracker):
 
             for sample_i in range(batch_size):
                 if sample_count < buffer_size:
-                    # Incomplete buffer. A given sample first frame have 
-                    # not appeared in all frame positions before
                     y_pred = y_pred_buffer[
                         sample_indices + sample_i,
                         frame_indices,
                     ].sum(0) / (sample_count + 1)
                 else:
-                    # General complete buffer. A given sample first frame
-                    # have appeared in all frame positions before
                     y_pred = (
                         y_pred_buffer[
                             sample_indices + sample_i,
@@ -485,7 +422,6 @@ class BallTracker(Tracker):
                 sample_count += 1
 
                 if sample_count == num_sample:
-                    # The sample above was the last sample
                     y_zero_pad = torch.zeros(
                         (buffer_size, seq_len, self.HEIGHT, self.WIDTH),
                         dtype=torch.float32,
@@ -494,7 +430,7 @@ class BallTracker(Tracker):
                         (y_pred_buffer, y_zero_pad),
                         dim=0,
                     )
-                    print(seq_len)
+                    # print(seq_len)
                     for frame_i in range(1, seq_len):
                         y_pred = y_pred_buffer[
                             sample_indices + sample_i + frame_i,
@@ -511,7 +447,7 @@ class BallTracker(Tracker):
 
             # Predict
             tmp_pred = predict_modified(
-                y_pred=ensemble_y_pred, # first frame prediction of batch_size samples
+                y_pred=ensemble_y_pred, 
                 img_scaler=img_scaler,
                 WIDTH=self.WIDTH,
                 HEIGHT=self.HEIGHT,
@@ -520,7 +456,7 @@ class BallTracker(Tracker):
             for key in tmp_pred.keys():
                 tracknet_pred_dict[key].extend(tmp_pred[key])
 
-            # Update buffer, keep last predictions for ensemble in next iteration
+            # Update buffer
             y_pred_buffer = y_pred_buffer[-buffer_size:]
 
         if self.inpaintnet is not None:
@@ -536,7 +472,6 @@ class BallTracker(Tracker):
                 'Visibility':[],
             }
 
-            # Create dataset with overlap sampling for temporal ensemble
             dataset = BallTrajectoryDataset(
                 seq_len=seq_len, 
                 sliding_step=1, 
@@ -552,11 +487,10 @@ class BallTracker(Tracker):
                 batch_size=self.batch_size, 
                 shuffle=False, 
                 drop_last=False,
-            ) # num_workers=num_workers, 
+            ) 
 
             weight = get_ensemble_weight(seq_len, self.EVAL_MODE)
 
-            # Init buffer params
             num_sample, sample_count = len(dataset), 0
             buffer_size = seq_len - 1
             sample_indices = torch.arange(seq_len) 
@@ -577,7 +511,6 @@ class BallTracker(Tracker):
                     
                     coor_inpaint = coor_inpaint * inpaint_mask + coor_pred * (1-inpaint_mask)
                 
-                # Thresholding
                 th_mask = (
                     (
                         (coor_inpaint[:, :, 0] < self.COOR_TH) 
@@ -602,14 +535,12 @@ class BallTracker(Tracker):
                 
                 for sample_i in range(batch_size):
                     if sample_count < buffer_size:
-                        # Imcomplete buffer
                         coor_inpaint = coor_inpaint_buffer[
                             sample_indices + sample_i, 
                             frame_indices,
                         ].sum(0)
                         coor_inpaint /= (sample_count+1)
                     else:
-                        # General case
                         coor_inpaint = (
                             coor_inpaint_buffer[
                                 sample_indices + sample_i, 
@@ -628,7 +559,6 @@ class BallTracker(Tracker):
                     sample_count += 1
 
                     if sample_count == num_sample:
-                        # Last input sequence
                         coor_zero_pad = torch.zeros(
                             (buffer_size, seq_len, 2), 
                             dtype=torch.float32,
@@ -653,11 +583,9 @@ class BallTracker(Tracker):
                                 dim=0,
                             )
 
-                # Thresholding
                 th_mask = ((ensemble_coor_inpaint[:, :, 0] < self.COOR_TH) & (ensemble_coor_inpaint[:, :, 1] < self.COOR_TH))
                 ensemble_coor_inpaint[th_mask] = 0.
 
-                # Predict
                 tmp_pred = predict(
                     ensemble_i, 
                     c_pred=ensemble_coor_inpaint,
@@ -666,15 +594,15 @@ class BallTracker(Tracker):
                     HEIGHT=self.HEIGHT,
                 )
 
-                {'Frame':[], 'X':[], 'Y':[], 'Visibility':[]}
+                # {'Frame':[], 'X':[], 'Y':[], 'Visibility':[]}
                 for key in tmp_pred.keys():
                     inpaint_pred_dict[key].extend(tmp_pred[key])
                 
-                # Update buffer, keep last predictions for ensemble in next iteration
                 coor_inpaint_buffer = coor_inpaint_buffer[-buffer_size:]
 
         pred_dict = inpaint_pred_dict if self.inpaintnet is not None else tracknet_pred_dict
         
+        # --- Generación de detecciones CRUDAS ---
         ball_detections = []
         for frame_counter in range(video_len):
             if frame_counter in pred_dict["Frame"]:
@@ -687,7 +615,7 @@ class BallTracker(Tracker):
                     )
                 )
             else:
-                print(f"{self.__str__()}: missing detection frame {frame_counter}")
+                # print(f"{self.__str__()}: missing detection frame {frame_counter}")
                 ball_detections.append(
                     Ball(
                         frame=frame_counter,
@@ -695,19 +623,33 @@ class BallTracker(Tracker):
                         visibility=0,
                     )
                 )
-
-        # for i, frame_index in enumerate(pred_dict["Frame"]):
-        #     if frame_counter == frame_index:
-        #         ball_detections.append(
-        #             Ball(
-        #                 frame=frame_index,
-        #                 xy=(pred_dict["X"][i], pred_dict["Y"][i]),
-        #                 visibility=pred_dict["Visibility"][i]
-        #             )
-        #         )
-            
-        return ball_detections
-
         
+        # --- NUEVO: POST-PROCESAMIENTO CON FILTRO KALMAN ---
+        cleaned_ball_detections = []
+        
+        # Reiniciar filtro con FPS correctos antes de la pasada secuencial
+        fps_val = self.video_info.fps if hasattr(self.video_info, 'fps') and self.video_info.fps > 0 else 30
+        self.kalman = PadelBallKalmanFilter(fps=fps_val)
+        
+        for ball in ball_detections:
+            # 1. Predicción física
+            pred_x, pred_y = self.kalman.predict()
 
+            if ball.visibility == 1:
+                # 2. Si hay detección visual, corregimos el filtro
+                self.kalman.update(ball.xy)
+                
+                # Usamos la posición suavizada
+                smooth_x, smooth_y = self.kalman.get_state()
+                ball.xy = (smooth_x, smooth_y)
             
+            else:
+                # 3. Si no hay detección, intentamos rellenar con la predicción
+                # Solo si hace menos de 10 frames que perdimos la bola
+                if self.kalman.missed_frames < 10:
+                    ball.xy = (pred_x, pred_y)
+                    # Opcional: ball.visibility = 1 # Si quieres forzar que aparezca en visualizaciones
+            
+            cleaned_ball_detections.append(ball)
+
+        return cleaned_ball_detections

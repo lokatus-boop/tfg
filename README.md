@@ -117,4 +117,5 @@ Las contribuciones son bienvenidas. Por favor, abre un *Issue* para discutir cam
 
 ## 📄 Licencia
 
-Este proyecto está bajo la licencia MIT.
+Este proyecto está bajo la licencia **Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)**. 
+Esto implica que puedes usar, modificar y compartir el código libremente para fines **académicos, educativos o privados, siempre sin ánimo de lucro**. Cualquier uso comercial o de monetización está estrictamente prohibido sin el consentimiento expreso del autor.
