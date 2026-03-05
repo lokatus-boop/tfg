@@ -11,32 +11,6 @@ El núcleo de la tecnología orbita alrededor de:
 *   **Gestión del Flujo y Bounding Boxes**: Librería `Supervision` de Roboflow, clave en el *tracking*, persistencia de IDs, generación de *polygon-zones* (zonas de interés) y anotadores gráficos.
 *   **Visualización Gui Web**: `Streamlit`, utilizado como frontend declarativo.
 
-```mermaid
-architecture-beta
-    group app(cloud)[Aplicación]
-    group ia(server)[Núcleo de Inteligencia Artificial]
-    group output(database)[Salida y Exportación]
-
-    service frontend(server)[Streamlit GUI - app.py] in app
-    service backend(disk)[Script CLI - main.py] in app
-
-    service tracking(server)[Módulo Trackers] in ia
-    service analytics(server)[Módulo Analíticas] in ia
-    service models(database)[Pesos / Models] in ia
-
-    service csv(disk)[CSV Datos] in output
-    service video(disk)[Vídeo Procesado] in output
-    service pdf(disk)[PDF Informe] in output
-
-    frontend:R --> L:tracking
-    backend:R --> L:tracking
-    models:T --> B:tracking
-    tracking:R --> L:analytics
-    
-    analytics:B --> T:csv
-    analytics:B --> T:video
-    analytics:R --> L:pdf
-```
 
 Existen dos vías de ejecución u *entry points*:
 1.  **`app.py`**: Interfaz de Streamlit con control estado (`st.session_state`). Ideal para despliegue.
