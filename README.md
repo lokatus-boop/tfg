@@ -39,7 +39,7 @@ No necesitas instalar Python ni CUDA manualmente.
 1.  **Instala Docker Desktop**: [Descargar aquí](https://www.docker.com/products/docker-desktop/).
 2.  **Clona el repositorio**:
     ```bash
-    git clone https://github.com/LuismiSanz/padel_analisis.git
+    git clone https://github.com/lokatus-boop/tfg.git
     cd padel_analisis
     ```
 3.  **Ejecuta la aplicación**:
